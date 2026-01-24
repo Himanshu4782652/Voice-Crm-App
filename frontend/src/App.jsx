@@ -87,11 +87,23 @@ function App() {
 
   const fetchDashboard = async () => {
     try {
-      const res = await axios.get(`${API_URL}/dashboard-data`);
-      setDashboardData(res.data);
+      // 1. Added ngrok header to bypass the warning screen
+      const res = await axios.get(`${API_URL}/dashboard-data`, {
+        headers: {
+          "ngrok-skip-browser-warning": "69420"
+        }
+      });
+      
+      // 2. Safety check: Ensure the response is actually an array
+      if (Array.isArray(res.data)) {
+        setDashboardData(res.data);
+      } else {
+        console.warn("API returned non-array data:", res.data);
+        setDashboardData([]); // Fallback to empty array
+      }
+      
       setView('dashboard');
     } catch (error) {
-      // Fixed: Now we actually use the error variable
       console.error("Dashboard fetch error:", error);
       alert("Could not load dashboard data");
     }

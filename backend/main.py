@@ -14,7 +14,7 @@ app = FastAPI()
 
 # --- CONFIGURATION ---
 # Set to True to save money/time during dev. Set False to use real OpenAI API.
-USE_MOCK_AI = True 
+USE_MOCK_AI = True
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Allow frontend to communicate with backend (CORS)
@@ -172,7 +172,7 @@ async def process_audio(file: UploadFile = File(...)):
         }
 
     except Exception as e:
-        return HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/dashboard-data")
 def get_dashboard_data():
