@@ -5,17 +5,17 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-# --- NEW SDK IMPORT ---
-from google import genai
+# --- GROQ (OPEN SOURCE MODELS) ---
+from groq import Groq
 
 load_dotenv()
 app = FastAPI()
 
 # --- CONFIGURATION ---
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") 
-client = genai.Client(api_key=GEMINI_API_KEY)
+# Paste your Groq key here directly or in .env
+GROQ_API_KEY = os.getenv("GROQ_API_KEY") 
+client = Groq(api_key=GROQ_API_KEY)
 
-# Allow frontend to communicate
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,47 +26,40 @@ app.add_middleware(
 
 interactions_db = []
 
-# --- GEMINI PROCESSING (NEW SDK) ---
-async def process_with_gemini(audio_file_path):
+# --- OPEN SOURCE PROCESSING (WHISPER + GEMMA/LLAMA) ---
+async def process_with_opensource(audio_file_path):
     try:
-        # 1. Upload the file using the new SDK
-        audio_file = client.files.upload(file=audio_file_path)
+        # 1. Transcribe Audio using Open Source Whisper Large V3
+        with open(audio_file_path, "rb") as file:
+            transcription = client.audio.transcriptions.create(
+                file=(audio_file_path, file.read()),
+                model="whisper-large-v3",
+                response_format="text"
+            )
         
-        prompt = """
-        Listen to this audio. 
-        1. Transcribe the speech exactly.
-        2. Extract the following fields into a JSON object:
-           - full_name
-           - phone (digits only)
-           - address
-           - city
-           - locality
-           - summary (short interaction summary)
+        # 2. Extract JSON using Open Source Llama 3 (or Gemma 2)
+        prompt = f"""
+        Extract the following fields from this transcript into a JSON object:
+        - full_name
+        - phone (digits only)
+        - address
+        - city
+        - locality
+        - summary (short interaction summary)
         
-        Output format:
-        |TRANSCRIPTION_START|
-        (Insert transcription here)
-        |TRANSCRIPTION_END|
-        |JSON_START|
-        (Insert valid JSON here)
-        |JSON_END|
+        Transcript: "{transcription}"
+        
+        Respond ONLY with valid JSON. No markdown tags.
         """
         
-        # 2. Generate content using the new SDK syntax
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=[prompt, audio_file]
+        chat_completion = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.1-8b-instant",  # <-- NEW UPGRADED MODEL
+            temperature=0,
+            response_format={"type": "json_object"}
         )
-        text_response = response.text
         
-        # Parse the custom format
-        transcription = text_response.split("|TRANSCRIPTION_START|")[1].split("|TRANSCRIPTION_END|")[0].strip()
-        json_str = text_response.split("|JSON_START|")[1].split("|JSON_END|")[0].strip()
-        
-        if json_str.startswith("```json"):
-            json_str = json_str[7:-3]
-            
-        data = json.loads(json_str)
+        data = json.loads(chat_completion.choices[0].message.content)
         
         result = {
             "customer": {
@@ -84,14 +77,10 @@ async def process_with_gemini(audio_file_path):
         return transcription, result
         
     except Exception as e:
-        print(f"Gemini Error: {str(e)}")
+        print(f"Error: {str(e)}")
         raise e
 
 # --- API ENDPOINTS ---
-
-@app.get("/")
-def home():
-    return {"message": "Voice CRM Backend (Upgraded SDK) is Running"}
 
 @app.post("/process-audio")
 async def process_audio(file: UploadFile = File(...)):
@@ -100,7 +89,8 @@ async def process_audio(file: UploadFile = File(...)):
         with open(temp_filename, "wb") as buffer:
             buffer.write(await file.read())
 
-        transcribed_text, structured_data = await process_with_gemini(temp_filename)
+        # Process with Open Source Models
+        transcribed_text, structured_data = await process_with_opensource(temp_filename)
 
         record = {
             "id": len(interactions_db) + 1,
